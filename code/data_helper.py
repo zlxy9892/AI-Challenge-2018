@@ -102,6 +102,23 @@ def batch_iter(data, batch_size, num_epochs, shuffle=True):
             yield np.array(shuffled_data[start_index:end_index])
 
 
+def get_pre_trained_word_vectors(f_word_vector='./data/sgns.zhihu.bigram-char'):
+    word_vectors = {}
+    with open(f_word_vector, encoding='utf-8') as f_word_vec:
+        lines = f_word_vec.readlines()
+        for i in range(len(lines)):
+            if i == 0:
+                continue
+            line = lines[i]
+            line = line.strip('\n')
+            line = line.strip(' ')
+            tokens = line.split(' ')
+            word = tokens[0]
+            vector = np.array(tokens[1:]).astype(np.float)
+            word_vectors[word] = vector
+    return word_vectors
+
+
 def load_word_vectors(word2id, pre_word_vectors_dict, embedding_size):
     vocab_size = len(list(word2id.keys()))
     embedding_matrix = np.zeros(shape=(vocab_size, embedding_size))  # shape: [vocab_size, embedding_size]
@@ -116,6 +133,7 @@ def load_word_vectors(word2id, pre_word_vectors_dict, embedding_size):
     embedding_matrix = embedding_matrix.astype(np.float32)
     include_prob = 1 - float(not_include_count) / vocab_size
     return embedding_matrix, include_prob
+
 
 def transform_data(data):
     # the shape of the data is ? x 80, we need transform it to be ? x 20 (each item in one row is a number in set: {1,0,-1,-2})

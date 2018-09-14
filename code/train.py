@@ -14,11 +14,11 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # in {'0', '1', '2', '3'}
 
 
 ### hyper parameters
-lr = 0.001
+lr = 1e-3
 num_epochs = 1000
 batch_size = 32
 num_classes = 80
-embedding_size = 10
+embedding_size = 300
 filter_sizes = [3,4,5]
 num_filters = 100
 dropout_keep_prob = 0.5
@@ -27,14 +27,17 @@ evaluate_every = 100
 checkpoint_every = 100
 num_checkpoints = 10
 device_name = '/cpu:0'
-use_pre_trained_model = True
+use_pre_trained_model = False
 pre_trained_model_path = './model/model-4100'
+use_pre_trained_embedding = True
+pre_trained_embedding_file = './data/merge_sgns_bigram_char300.txt'
 use_pkl = True
 
 
 ### loading the train dataset
 print('Preprocessing data set...')
 if use_pkl:  # load data from pkl file (much faster)
+    print('loading data from pkl file (much faster)...')
     with open('./data/x_train.pkl', 'rb') as f:
         x_train = pickle.load(f)
     with open('./data/y_train.pkl', 'rb') as f:
@@ -75,6 +78,20 @@ else:
     with open('./data/y_dev.pkl', 'wb') as f:
         pickle.dump(y_dev, f)
 
+# get the pre-trained word vectors
+if not use_pre_trained_model and use_pre_trained_embedding:
+    print('loading pre-trained word vectors...')
+    pre_word_vectors = data_helper.get_pre_trained_word_vectors(pre_trained_embedding_file)
+    pre_trained_embedding_size = len(list(pre_word_vectors.values())[0])
+    pre_trained_embedding_matrix, include_prob = data_helper.load_word_vectors(word2id, pre_word_vectors, embedding_size)
+    print('embedding_shape: {}, include_prob: {}'.format(pre_trained_embedding_matrix.shape, include_prob))
+    with open('./data/pre_trained_embedding_matrix.pkl', 'wb') as f:
+        pickle.dump(pre_trained_embedding_matrix, f)
+    # with open('./data/pre_trained_embedding_matrix.pkl', 'rb') as f:
+    #     pre_trained_embedding_matrix = pickle.load(f)
+else:
+    pre_trained_embedding_matrix = None
+
 print('loading original labels...')
 label_origin_dev = data_helper.load_origin_label('./data/sentiment_analysis_validationset.csv')
 
@@ -108,7 +125,7 @@ text_cnn_model = TextCNN(
     num_filters=num_filters,
     dropout_keep_prob=dropout_keep_prob,
     l2_reg_lambda=l2_reg_lambda,
-    pre_trained_embedding_matrix=None,
+    pre_trained_embedding_matrix=pre_trained_embedding_matrix,
     device_name=device_name)
 
 text_cnn_model.build_model()
