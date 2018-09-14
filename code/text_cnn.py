@@ -90,7 +90,7 @@ class TextCNN(object):
 
             # add dropout
             with tf.name_scope('dropout'):
-                self.h_drop = tf.nn.dropout(self.h_pool_flat, keep_prob=self.dropout_keep_prob_ph)
+                self.h_drop = tf.nn.dropout(self.h_pool_flat, keep_prob=self.dropout_keep_prob_ph, name='dropout_keep_prob')
 
             # final output
             with tf.name_scope('output'):
@@ -99,9 +99,9 @@ class TextCNN(object):
                 # l2_loss += tf.nn.l2_loss(W_fc)
                 # l2_loss += tf.nn.l2_loss(b_fc)
                 self.scores = tf.nn.xw_plus_b(x=self.h_drop, weights=W_fc, biases=b_fc, name='scores')
-                self.logits = tf.nn.sigmoid(self.scores, name='logits')
+                self.y_logits = tf.nn.sigmoid(self.scores, name='y_logits')
                 # self.predictions = tf.argmax(input=self.scores, axis=1, name='predictions')
-                self.pred = tf.greater(self.logits, 0.5, name='y_pred')
+                self.y_pred = tf.greater(self.y_logits, 0.5, name='y_pred')
 
             # calculate mean cross-entropy loss
             with tf.name_scope('loss'):
@@ -113,14 +113,14 @@ class TextCNN(object):
             # calculate accuracy
             with tf.name_scope('accuracy'):
                 self.y_true = tf.greater(self.input_y, 0.5, name='y_true')
-                self.correct_preds = tf.equal(self.pred, self.y_true)
+                self.correct_preds = tf.equal(self.y_pred, self.y_true)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_preds, 'float32'), name='accuracy')
 
-            # optimize
-            self.global_step = tf.Variable(0, trainable=False, name='global_step')
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
-            grads_and_vars = optimizer.compute_gradients(self.loss)
-            self.train_op = optimizer.apply_gradients(grads_and_vars, global_step=self.global_step, name='train_op')
+        # optimize
+        self.global_step = tf.Variable(0, trainable=False, name='global_step')
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
+        grads_and_vars = optimizer.compute_gradients(self.loss)
+        self.train_op = optimizer.apply_gradients(grads_and_vars, global_step=self.global_step, name='train_op')
 
     def train_model(self, x_train, y_train, x_dev, y_dev, label_origin_dev, use_pre_trained=False, pre_trained_model_path=None):
         config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
@@ -172,7 +172,7 @@ class TextCNN(object):
                     self.dropout_keep_prob_ph: self.dropout_keep_prob
                 }
                 _, step, summaries, loss, acc, y_logits, y_pred, y_true = sess.run(
-                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.logits, self.pred, self.y_true],
+                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.y_true],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
@@ -201,7 +201,7 @@ class TextCNN(object):
                     self.dropout_keep_prob_ph: 1.0
                 }
                 step, summaries, loss, accuracy, y_logits = sess.run(
-                    [self.global_step, dev_summary_op, self.loss, self.accuracy, self.logits],
+                    [self.global_step, dev_summary_op, self.loss, self.accuracy, self.y_logits],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
@@ -242,3 +242,62 @@ class TextCNN(object):
                 if current_step % self.checkpoint_every == 0:
                     path = saver.save(sess=sess, save_path=checkpoint_prefix, global_step=self.global_step)
                     print('\nSaved model checkpoint to {}\n'.format(path))
+
+    def predict(self, model_file, x_test):
+        # self.build_model()
+        graph = tf.Graph()
+        with tf.Session(graph=graph) as sess:
+            # Load the saved meta graph and restore variables
+            saver = tf.train.import_meta_graph('{}.meta'.format(model_file))
+            saver.restore(sess, model_file)
+
+            # Access and create placeholders variables and create feed-dict to feed new data
+            graph = tf.get_default_graph()
+            input_x_ph = graph.get_tensor_by_name('input_x:0')
+            dropout_keep_prob_ph = graph.get_tensor_by_name('dropout_keep_prob:0')
+            feed_dict = {
+                input_x_ph: x_test,
+                dropout_keep_prob_ph: 1.0
+            }
+
+            op_y_logits = graph.get_tensor_by_name('output/y_logits:0')
+            op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
+
+            y_logits, y_pred = sess.run([op_y_logits, op_y_pred], feed_dict)
+
+            # transform y_pred
+            y_pred_trans = data_helper.transform_data(y_logits)
+
+            return y_pred_trans
+
+    def predict_batch(self, model_file, x_test, batch_size=100):
+        # self.build_model()
+        all_y_pred = []
+        graph = tf.Graph()
+        with tf.Session(graph=graph) as sess:
+            # Load the saved meta graph and restore variables
+            saver = tf.train.import_meta_graph('{}.meta'.format(model_file))
+            saver.restore(sess, model_file)
+
+            # Access and create placeholders variables and create feed-dict to feed new data
+            graph = tf.get_default_graph()
+            input_x_ph = graph.get_tensor_by_name('input_x:0')
+            dropout_keep_prob_ph = graph.get_tensor_by_name('dropout_keep_prob:0')
+
+            op_y_logits = graph.get_tensor_by_name('output/y_logits:0')
+            op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
+
+            low = 0
+            while low < x_test.shape[0]:
+                n_sample = min(low + batch_size, x_test.shape[0]) - low
+                feed_dict = {
+                    input_x_ph: x_test,
+                    dropout_keep_prob_ph: 1.0
+                }
+                y_logits, y_pred = sess.run([op_y_logits, op_y_pred], feed_dict)
+
+                # transform y_pred
+                y_pred_trans = data_helper.transform_data(y_logits)
+                all_y_pred = np.concatenate([all_y_pred, y_pred_trans])
+
+            return all_y_pred

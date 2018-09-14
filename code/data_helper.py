@@ -61,10 +61,23 @@ def load_origin_label(filename):
     return label
 
 
-def extract_character_vocab(data):
+def extract_character_vocab(data, min_frequency=2):
     data = list(data)
     special_words = ['<PAD>', '<GO>', '<EOS>', '<UNK>']
-    word_set = sorted(set([word for word_list in data for word in word_list]))
+
+    # get word frequency
+    frequency = defaultdict(int)
+    for word_list in data:
+        for word in word_list:
+            frequency[word] += 1
+
+    word_set = []
+    for word_list in data:
+        for word in word_list:
+            if frequency[word] > min_frequency:
+                word_set.append(word)
+    word_set = sorted(set(word_set))
+    # word_set = sorted(set([word for word_list in data for word in word_list]))
     id2word = {idx: word for idx, word in enumerate(special_words + word_set)}
     word2id = {word: idx for idx, word in id2word.items()}
     return word2id

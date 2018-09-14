@@ -18,7 +18,7 @@ lr = 1e-3
 num_epochs = 1000
 batch_size = 32
 num_classes = 80
-embedding_size = 300
+embedding_size = 20
 filter_sizes = [3,4,5]
 num_filters = 100
 dropout_keep_prob = 0.5
@@ -29,7 +29,7 @@ num_checkpoints = 10
 device_name = '/cpu:0'
 use_pre_trained_model = False
 pre_trained_model_path = './model/model-4100'
-use_pre_trained_embedding = True
+use_pre_trained_embedding = False
 pre_trained_embedding_file = './data/merge_sgns_bigram_char300.txt'
 use_pkl = True
 
@@ -99,6 +99,7 @@ label_origin_dev = data_helper.load_origin_label('./data/sentiment_analysis_vali
 max_sentence_len = x_train.shape[1]
 vocab_size = len(word2id)
 num_classes = y_train.shape[1]
+print('learning_rate: {}'.format(lr))
 print('max_sentence_len: {}'.format(max_sentence_len))
 print('vocab_size: {}'.format(vocab_size))
 print('x_train_shape: {}'.format(x_train.shape))
@@ -130,3 +131,7 @@ text_cnn_model = TextCNN(
 
 text_cnn_model.build_model()
 text_cnn_model.train_model(x_train, y_train, x_dev[:1000], y_dev[:1000], label_origin_dev[:1000], use_pre_trained_model, pre_trained_model_path)
+
+# predict test data by pre-trained model
+# y_test_pred = text_cnn_model.predict(model_file='./model/model-100', x_test=x_dev[:10])
+# print(y_test_pred)
