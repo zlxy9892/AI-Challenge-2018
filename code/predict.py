@@ -16,7 +16,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # in {'0', '1', '2', '3'}
 ### hyper parameters
 model_file = './model/model-best'
 lr = 1e-3
-num_epochs = 1000
+num_epochs = 50
 batch_size = 32
 num_classes = 80
 embedding_size = 20
