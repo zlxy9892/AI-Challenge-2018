@@ -14,7 +14,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # in {'0', '1', '2', '3'}
 
 
 ### hyper parameters
-model_file = './model/model-148800'
+model_file = './model/model-best'
 lr = 1e-3
 num_epochs = 1000
 batch_size = 32
