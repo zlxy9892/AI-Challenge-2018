@@ -30,6 +30,7 @@ device_name = '/cpu:0'
 evaluate_every = 100
 checkpoint_every = 100
 num_checkpoints = 10
+word_min_frequency = 2
 use_pre_trained_model = False
 pre_trained_model_path = './model/model-4100'
 use_pre_trained_embedding = False
@@ -57,7 +58,7 @@ else:
     max_sentence_len = max([len(s) for s in x_text_train])
 
     print('loading word2id...\n')
-    word2id = data_helper.extract_character_vocab(x_text_train)
+    word2id = data_helper.extract_character_vocab(x_text_train, min_frequency=word_min_frequency)
 
     print('loading padded x_ids...\n')
     x_train = data_helper.get_x_ids(x_text_train, word2id)
