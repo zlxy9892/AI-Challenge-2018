@@ -26,7 +26,7 @@ dropout_keep_prob = 0.5
 l2_reg_lambda = 0.1
 device_name = '/cpu:0'
 max_sentence_len = 1741
-vocab_size = 226013
+vocab_size = 85358  # 226013
 
 
 # load word2id dict
