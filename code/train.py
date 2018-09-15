@@ -27,6 +27,9 @@ evaluate_every = 100
 checkpoint_every = 100
 num_checkpoints = 10
 device_name = '/cpu:0'
+evaluate_every = 100
+checkpoint_every = 100
+num_checkpoints = 10
 use_pre_trained_model = False
 pre_trained_model_path = './model/model-4100'
 use_pre_trained_embedding = False
@@ -111,6 +114,7 @@ print('y[0:2]:\n{}'.format(y_train[0:2]))
 print('x_dev_shape: {}'.format(x_dev.shape))
 print('y_dev_shape: {}'.format(y_dev.shape))
 
+# sys.exit(0)
 
 ### build the model and train
 input('Press enter to start training...')
@@ -127,11 +131,10 @@ text_cnn_model = TextCNN(
     dropout_keep_prob=dropout_keep_prob,
     l2_reg_lambda=l2_reg_lambda,
     pre_trained_embedding_matrix=pre_trained_embedding_matrix,
-    device_name=device_name)
+    device_name=device_name,
+    evaluate_every=evaluate_every,
+    checkpoint_every=checkpoint_every,
+    num_checkpoints=num_checkpoints)
 
 text_cnn_model.build_model()
 text_cnn_model.train_model(x_train, y_train, x_dev[:1000], y_dev[:1000], label_origin_dev[:1000], use_pre_trained_model, pre_trained_model_path)
-
-# predict test data by pre-trained model
-# y_test_pred = text_cnn_model.predict(model_file='./model/model-100', x_test=x_dev[:10])
-# print(y_test_pred)

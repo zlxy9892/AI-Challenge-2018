@@ -16,10 +16,12 @@ class TextCNN(object):
     Structure: embedding layer -> convolutional layer -> max-pooling layer -> softmax layer.
     '''
 
-    def __init__(self, num_epochs, batch_size, lr, num_classes, sequence_length, vocab_size,
-                 embedding_size, filter_sizes, num_filters, dropout_keep_prob, l2_reg_lambda=0.0,
+    def __init__(self, num_epochs=100, batch_size=32, lr=1e-3, num_classes=80, sequence_length=1000, vocab_size=1000,
+                 embedding_size=20, filter_sizes=None, num_filters=100, dropout_keep_prob=0.5, l2_reg_lambda=0.0,
                  pre_trained_embedding_matrix=None, device_name='/cpu:0',
                  evaluate_every=100, checkpoint_every=100, num_checkpoints=10):
+        if filter_sizes is None:
+            filter_sizes = [3, 4, 5]
         self.lr = lr
         self.num_epochs = num_epochs
         self.batch_size = batch_size
@@ -178,19 +180,6 @@ class TextCNN(object):
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
                 epoch = int((step - 1) / num_batches_per_epoch) + 1
                 print('{}: => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step, loss, acc))
-                # print('y_logits:\n{}'.format(y_logits[0]))
-                # print('y_pred:\n{}'.format(y_pred[0]))
-                # print('y_true:\n{}'.format(y_true[0]))
-                # score_f1 = metrics.f1_score(y_true, y_pred, average='macro')
-                # print('score_F1: {:.5f}'.format(score_f1))
-                # print(correct_preds)
-
-                # transform y_pred
-                # y_pred_trans = data_helper.transform_data(y_logits)
-                # print(y_pred_trans)
-                # print(y_pred_trans[0])
-
-                # sys.exit(0)
                 if writer:
                     writer.add_summary(summaries, step)
 
@@ -210,8 +199,8 @@ class TextCNN(object):
 
                 # transform y_pred
                 y_pred_trans = data_helper.transform_data(y_logits)
-                print('y_pred:\n{}'.format(y_pred_trans[0:3]))
-                print('y_true:\n{}'.format(label_origin_batch[0:3]))
+                # print('y_pred:\n{}'.format(y_pred_trans[0:3]))
+                # print('y_true:\n{}'.format(label_origin_batch[0:3]))
 
                 # calc F1 score
                 score_f1_list = []
@@ -223,11 +212,13 @@ class TextCNN(object):
 
                 if writer:
                     writer.add_summary(summaries, step)
+                return score_f1
 
             ### training loop
             # generate batches
             batches = data_helper.batch_iter(
                 data=list(zip(x_train, y_train)), batch_size=self.batch_size, num_epochs=self.num_epochs)
+            score_f1_max = 0.0
             # train loop, for each batch
             for batch in batches:
                 x_batch, y_batch = zip(*batch)
@@ -237,7 +228,12 @@ class TextCNN(object):
                 current_step = tf.train.global_step(sess, self.global_step)
                 if current_step % self.evaluate_every == 0:
                     print('\nEvaluation on dev set:')
-                    dev_step(x_dev, y_dev, label_origin_dev, writer=dev_summary_writer)
+                    score_f1 = dev_step(x_dev, y_dev, label_origin_dev, writer=dev_summary_writer)
+                    if score_f1_max < score_f1:
+                        score_f1_max = score_f1
+                        path_best_model = './model/model-best'
+                        saver.save(sess, path_best_model)
+                        print('\nSaved best model to {}\n'.format(path_best_model))
                     print('')
                 if current_step % self.checkpoint_every == 0:
                     path = saver.save(sess=sess, save_path=checkpoint_prefix, global_step=self.global_step)
@@ -272,7 +268,6 @@ class TextCNN(object):
 
     def predict_batch(self, model_file, x_test, batch_size=100):
         # self.build_model()
-        all_y_pred = []
         graph = tf.Graph()
         with tf.Session(graph=graph) as sess:
             # Load the saved meta graph and restore variables
@@ -285,19 +280,28 @@ class TextCNN(object):
             dropout_keep_prob_ph = graph.get_tensor_by_name('dropout_keep_prob:0')
 
             op_y_logits = graph.get_tensor_by_name('output/y_logits:0')
-            op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
+            # op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
+            all_y_pred_logits = []
+            batches = data_helper.batch_iter(list(x_test), batch_size, 1, shuffle=False)
+            iter = 1
+            iter_sum = int((len(x_test)-1)/batch_size)+1
+            for x_test_batch in batches:
+                progress_percent = iter/iter_sum*100
+                print('\rpredicting: {:.0f}%'.format(progress_percent), end='')
 
-            low = 0
-            while low < x_test.shape[0]:
-                n_sample = min(low + batch_size, x_test.shape[0]) - low
                 feed_dict = {
-                    input_x_ph: x_test,
+                    input_x_ph: x_test_batch,
                     dropout_keep_prob_ph: 1.0
                 }
-                y_logits, y_pred = sess.run([op_y_logits, op_y_pred], feed_dict)
+                y_logits_batch = sess.run(op_y_logits, feed_dict)
+                all_y_pred_logits.append(y_logits_batch)
+                iter += 1
+            print()
+            all_y_pred_logits = np.array(all_y_pred_logits)
+            all_y_pred_logits = all_y_pred_logits.reshape((-1, all_y_pred_logits.shape[2]))
+            # print(all_y_pred_logits.shape)
 
-                # transform y_pred
-                y_pred_trans = data_helper.transform_data(y_logits)
-                all_y_pred = np.concatenate([all_y_pred, y_pred_trans])
+            # transform y_pred
+            all_y_pred_trans = data_helper.transform_data(all_y_pred_logits)
 
-            return all_y_pred
+            return all_y_pred_trans
