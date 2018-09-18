@@ -30,6 +30,40 @@ def clean_str(string):
     return string.strip().lower()
 
 
+def label2id(label_mat):
+    id_mat = np.zeros(shape=label_mat.shape)
+    for i in range(label_mat.shape[0]):
+        for j in range(label_mat.shape[1]):
+            if label_mat[i, j] == 1:
+                id_mat[i, j] = 0
+            elif label_mat[i, j] == 0:
+                id_mat[i, j] = 1
+            elif label_mat[i, j] == -1:
+                id_mat[i, j] = 2
+            elif label_mat[i, j] == -2:
+                id_mat[i, j] = 3
+            else:
+                pass
+    return id_mat
+
+
+def id2label(id_mat):
+    label_mat = np.zeros(shape=id_mat.shape)
+    for i in range(id_mat.shape[0]):
+        for j in range(id_mat.shape[1]):
+            if id_mat[i, j] == 0:
+                label_mat[i, j] = 1
+            elif id_mat[i, j] == 1:
+                label_mat[i, j] = 0
+            elif id_mat[i, j] == 2:
+                label_mat[i, j] = -1
+            elif id_mat[i, j] == 3:
+                label_mat[i, j] = -2
+            else:
+                pass
+    return label_mat.astype(np.int32)
+
+
 def load_text_and_label(filename, include_label=True, topn=None):
     # load data from file
     df = pd.read_csv(filename)
@@ -37,6 +71,7 @@ def load_text_and_label(filename, include_label=True, topn=None):
     content_list = [s.strip('\n') for s in content_list]
     if include_label:
         labels = np.array(df[df.columns[2:]])
+        labels = label2id(labels)
     else:
         labels = None
 

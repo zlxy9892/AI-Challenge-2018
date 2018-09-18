@@ -6,6 +6,7 @@ import pandas as pd
 import tensorflow as tf
 from tensorflow.contrib import learn
 import data_helper
+import matplotlib.pyplot as plt
 import pickle
 from text_cnn import *
 
@@ -15,17 +16,15 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # in {'0', '1', '2', '3'}
 
 ### hyper parameters
 lr = 1e-3
-num_epochs = 50
+num_epochs = 20
 batch_size = 32
-num_classes = 80
+num_classes = 4
+num_types = 1  # 20
 embedding_size = 20
-filter_sizes = [3,4,5]
+filter_sizes = [3, 4, 5]
 num_filters = 100
 dropout_keep_prob = 0.5
-l2_reg_lambda = 0.1
-evaluate_every = 100
-checkpoint_every = 100
-num_checkpoints = 10
+l2_reg_lambda = 3.0
 device_name = '/cpu:0'
 evaluate_every = 100
 checkpoint_every = 100
@@ -36,12 +35,15 @@ pre_trained_model_path = './model/model-4100'
 use_pre_trained_embedding = False
 pre_trained_embedding_file = './data/merge_sgns_bigram_char300.txt'
 use_pkl = True
+type_slice_idx = 1
 
 
 ### loading the train dataset
 print('Preprocessing data set...')
 if use_pkl:  # load data from pkl file (much faster)
     print('loading data from pkl file (much faster)...')
+    with open('./data/x_text_train.pkl', 'rb') as f:
+        x_text_train = pickle.load(f)
     with open('./data/x_train.pkl', 'rb') as f:
         x_train = pickle.load(f)
     with open('./data/y_train.pkl', 'rb') as f:
@@ -64,7 +66,11 @@ else:
     x_train = data_helper.get_x_ids(x_text_train, word2id)
     x_train = data_helper.pad_sentence_batch(x_train, max_sentence_len=max_sentence_len)
 
+    y_train = y_train.astype(np.int32)
+
     # save data by pickle
+    with open('./data/x_text_train.pkl', 'wb') as f:
+        pickle.dump(x_text_train, f)
     with open('./data/x_train.pkl', 'wb') as f:
         pickle.dump(x_train, f)
     with open('./data/y_train.pkl', 'wb') as f:
@@ -77,6 +83,7 @@ else:
     x_text_dev, y_dev = data_helper.load_text_and_label('./data/df_valid.csv', topn=None)
     x_dev = data_helper.get_x_ids(x_text_dev, word2id)
     x_dev = data_helper.pad_sentence_batch(x_dev, max_sentence_len=max_sentence_len)
+    y_dev = y_dev.astype(np.int32)
     with open('./data/x_dev.pkl', 'wb') as f:
         pickle.dump(x_dev, f)
     with open('./data/y_dev.pkl', 'wb') as f:
@@ -97,12 +104,14 @@ else:
     pre_trained_embedding_matrix = None
 
 print('loading original labels...')
-label_origin_dev = data_helper.load_origin_label('./data/sentiment_analysis_validationset.csv')
+label_origin_dev = data_helper.load_origin_label('./data/df_valid.csv')
 
 # show data description
 max_sentence_len = x_train.shape[1]
 vocab_size = len(word2id)
-num_classes = y_train.shape[1]
+y_train = y_train[:, type_slice_idx-1:type_slice_idx]
+y_dev = y_dev[:, type_slice_idx-1:type_slice_idx]
+label_origin_dev = label_origin_dev[:, type_slice_idx-1:type_slice_idx]
 print('learning_rate: {}'.format(lr))
 print('max_sentence_len: {}'.format(max_sentence_len))
 print('vocab_size: {}'.format(vocab_size))
@@ -124,6 +133,7 @@ text_cnn_model = TextCNN(
     num_epochs=num_epochs,
     batch_size=batch_size,
     num_classes=num_classes,
+    num_types=num_types,
     sequence_length=max_sentence_len,
     vocab_size=vocab_size,
     embedding_size=embedding_size,

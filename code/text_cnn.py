@@ -8,6 +8,7 @@ import os
 import data_helper
 import tensorflow as tf
 from sklearn import metrics
+from tqdm import tqdm
 
 
 class TextCNN(object):
@@ -16,7 +17,7 @@ class TextCNN(object):
     Structure: embedding layer -> convolutional layer -> max-pooling layer -> softmax layer.
     '''
 
-    def __init__(self, num_epochs=100, batch_size=32, lr=1e-3, num_classes=80, sequence_length=1000, vocab_size=1000,
+    def __init__(self, num_epochs=100, batch_size=32, lr=1e-3, num_classes=4, num_types=20, sequence_length=1000, vocab_size=1000,
                  embedding_size=20, filter_sizes=None, num_filters=100, dropout_keep_prob=0.5, l2_reg_lambda=0.0,
                  pre_trained_embedding_matrix=None, device_name='/cpu:0',
                  evaluate_every=100, checkpoint_every=100, num_checkpoints=10):
@@ -26,6 +27,7 @@ class TextCNN(object):
         self.num_epochs = num_epochs
         self.batch_size = batch_size
         self.num_classes = num_classes
+        self.num_types = num_types
         self.sequence_length = sequence_length
         self.vocab_size = vocab_size
         self.embedding_size = embedding_size
@@ -42,11 +44,11 @@ class TextCNN(object):
     def build_model(self):
         # placeholder for the input, output and dropout
         self.input_x = tf.placeholder(dtype=tf.int32, shape=[None, self.sequence_length], name='input_x')
-        self.input_y = tf.placeholder(dtype=tf.float32, shape=[None, self.num_classes], name='input_y')
+        self.input_y = tf.placeholder(dtype=tf.int32, shape=[None, self.num_types], name='input_y')
         self.dropout_keep_prob_ph = tf.placeholder(dtype=tf.float32, name='dropout_keep_prob')
 
         # keep track of l2 regularization loss (optional)
-        l2_loss = tf.constant(0.0)
+        self.l2_loss = tf.constant(0.0)
 
         with tf.device(self.device_name):
 
@@ -96,26 +98,37 @@ class TextCNN(object):
 
             # final output
             with tf.name_scope('output'):
-                W_fc = tf.Variable(tf.truncated_normal(shape=[num_filter_total, self.num_classes], mean=0.0, stddev=0.1), name='W_fc')
-                b_fc = tf.Variable(tf.constant(0.1, shape=[self.num_classes]), name='b_fc')
-                # l2_loss += tf.nn.l2_loss(W_fc)
-                # l2_loss += tf.nn.l2_loss(b_fc)
-                self.scores = tf.nn.xw_plus_b(x=self.h_drop, weights=W_fc, biases=b_fc, name='scores')
-                self.y_logits = tf.nn.sigmoid(self.scores, name='y_logits')
-                # self.predictions = tf.argmax(input=self.scores, axis=1, name='predictions')
-                self.y_pred = tf.greater(self.y_logits, 0.5, name='y_pred')
+                self.all_scores = []
+                y_logits = []
+                y_pred = []
+                for i in range(self.num_types):
+                    W_fc = tf.Variable(tf.truncated_normal(shape=[num_filter_total, self.num_classes], mean=0.0, stddev=0.1), name='W_fc_{}'.format(i))
+                    b_fc = tf.Variable(tf.constant(0.1, shape=[self.num_classes]), name='b_fc_{}'.format(i))
+                    self.l2_loss += tf.nn.l2_loss(W_fc)
+                    self.l2_loss += tf.nn.l2_loss(b_fc)
+                    scores = tf.nn.xw_plus_b(x=self.h_drop, weights=W_fc, biases=b_fc, name='scores_{}'.format(i))
+                    self.all_scores.append(scores)
+                    y_logits_sub = tf.nn.softmax(scores, name='y_logits_sub_{}'.format(i))
+                    y_pred_sub = tf.argmax(input=scores, axis=1, name='y_pred_sub_{}'.format(i))
+                    y_logits.append(y_logits_sub)
+                    y_pred.append(y_pred_sub)
+                self.y_logits = tf.transpose(y_logits, [1, 0, 2], name='y_logits_transpose')
+                self.y_logits = tf.reshape(self.y_logits, [-1, self.num_types * self.num_classes], name='y_logits')
+                self.y_pred = tf.transpose(y_pred, [1, 0], name='y_pred_transpose')
+                self.y_pred = tf.cast(self.y_pred, 'int32', name='y_pred')
 
-            # calculate mean cross-entropy loss
+            # loss
             with tf.name_scope('loss'):
-                # losses = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.input_y, logits=self.scores)
-                losses = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.input_y, logits=self.scores)
-                self.loss = tf.reduce_mean(losses) + self.l2_reg_lambda * l2_loss
-                self.loss = tf.identity(self.loss, name='total_loss')
+                losses = []
+                for i in range(self.num_types):
+                    loss_sub = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_y[:, i], logits=self.all_scores[i])
+                    loss_sub = tf.reduce_mean(loss_sub)
+                    losses.append(loss_sub)
+                self.loss = tf.reduce_mean(losses) + self.l2_reg_lambda * self.l2_loss
 
             # calculate accuracy
             with tf.name_scope('accuracy'):
-                self.y_true = tf.greater(self.input_y, 0.5, name='y_true')
-                self.correct_preds = tf.equal(self.y_pred, self.y_true)
+                self.correct_preds = tf.equal(self.y_pred, self.input_y)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_preds, 'float32'), name='accuracy')
 
         # optimize
@@ -125,8 +138,10 @@ class TextCNN(object):
         self.train_op = optimizer.apply_gradients(grads_and_vars, global_step=self.global_step, name='train_op')
 
     def train_model(self, x_train, y_train, x_dev, y_dev, label_origin_dev, use_pre_trained=False, pre_trained_model_path=None):
-        config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
-        with tf.Session(config=config) as sess:
+        # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.45)
+        # session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False, gpu_options=gpu_options)
+        session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+        with tf.Session(config=session_conf) as sess:
             # output directory for models and summaries
             timestamp = str(int(time.time()))
             out_dir = os.path.abspath(os.path.join(os.curdir, 'log', timestamp))
@@ -173,13 +188,17 @@ class TextCNN(object):
                     self.input_y: y_batch,
                     self.dropout_keep_prob_ph: self.dropout_keep_prob
                 }
-                _, step, summaries, loss, acc, y_logits, y_pred, y_true = sess.run(
-                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.y_true],
+                _, step, summaries, loss, acc, y_logits, y_pred, input_y = sess.run(
+                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.input_y],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
                 epoch = int((step - 1) / num_batches_per_epoch) + 1
-                print('{}: => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step, loss, acc))
+                print('\rtrain_step: {}: => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step, loss, acc), end='')
+                # print()
+                # print('y_logits:\n{}'.format(y_logits[0]))
+                # print('y_pred: {}'.format(y_pred[0]))
+                # print('y_true: {}'.format(input_y[0]))
                 if writer:
                     writer.add_summary(summaries, step)
 
@@ -189,26 +208,22 @@ class TextCNN(object):
                     self.input_y: y_batch,
                     self.dropout_keep_prob_ph: 1.0
                 }
-                step, summaries, loss, accuracy, y_logits = sess.run(
-                    [self.global_step, dev_summary_op, self.loss, self.accuracy, self.y_logits],
+                step, summaries, loss, accuracy, y_logits, y_pred = sess.run(
+                    [self.global_step, dev_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
                 epoch = int(step / num_batches_per_epoch) + 1
-                print('{}: => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step, loss, accuracy))
-
-                # transform y_pred
-                y_pred_trans = data_helper.transform_data(y_logits)
-                # print('y_pred:\n{}'.format(y_pred_trans[0:3]))
-                # print('y_true:\n{}'.format(label_origin_batch[0:3]))
+                y_pred_trans = data_helper.id2label(y_pred)
 
                 # calc F1 score
                 score_f1_list = []
                 for col in range(y_pred_trans.shape[1]):
-                    score_f1_one = metrics.f1_score(label_origin_batch[:,col], y_pred_trans[:,col], average='macro')
+                    score_f1_one = metrics.f1_score(label_origin_batch[:, col], y_pred_trans[:, col], average='macro')
                     score_f1_list.append(score_f1_one)
                 score_f1 = np.mean(score_f1_list)
-                print('F1_score: {:.5f}'.format(score_f1))
+
+                print('dev_step:   {}: => epoch {} | step {} | loss {:.5f} | acc {:.5f} | F1_score: {:.5f}'.format(timestr, epoch, step, loss, accuracy, score_f1))
 
                 if writer:
                     writer.add_summary(summaries, step)
@@ -227,17 +242,19 @@ class TextCNN(object):
                 train_step(x_batch, y_batch, writer=train_summary_writer)
                 current_step = tf.train.global_step(sess, self.global_step)
                 if current_step % self.evaluate_every == 0:
-                    print('\nEvaluation on dev set:')
+                    # print('\nEvaluation on dev set:')
+                    print()
                     score_f1 = dev_step(x_dev, y_dev, label_origin_dev, writer=dev_summary_writer)
                     if score_f1_max < score_f1:
                         score_f1_max = score_f1
-                        path_best_model = './model/model-best'
+                        path_best_model = './model/model-best-{}'.format(current_step)
                         saver.save(sess, path_best_model)
-                        print('\nSaved best model to {}\n'.format(path_best_model))
-                    print('')
+                        print('>>> Saved best model to {}'.format(path_best_model))
+                    print()
                 if current_step % self.checkpoint_every == 0:
                     path = saver.save(sess=sess, save_path=checkpoint_prefix, global_step=self.global_step)
-                    print('\nSaved model checkpoint to {}\n'.format(path))
+                    print('Saved model checkpoint to {}'.format(path))
+                    print()
 
     def predict(self, model_file, x_test):
         # self.build_model()
@@ -255,16 +272,10 @@ class TextCNN(object):
                 input_x_ph: x_test,
                 dropout_keep_prob_ph: 1.0
             }
-
             op_y_logits = graph.get_tensor_by_name('output/y_logits:0')
             op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
-
             y_logits, y_pred = sess.run([op_y_logits, op_y_pred], feed_dict)
-
-            # transform y_pred
-            y_pred_trans = data_helper.transform_data(y_logits)
-
-            return y_pred_trans
+        return y_pred
 
     def predict_batch(self, model_file, x_test, batch_size=100):
         # self.build_model()
@@ -280,28 +291,22 @@ class TextCNN(object):
             dropout_keep_prob_ph = graph.get_tensor_by_name('dropout_keep_prob:0')
 
             op_y_logits = graph.get_tensor_by_name('output/y_logits:0')
-            # op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
-            all_y_pred_logits = []
+            op_y_pred = graph.get_tensor_by_name('output/y_pred:0')
+            all_y_pred = []
             batches = data_helper.batch_iter(list(x_test), batch_size, 1, shuffle=False)
             iter = 1
             iter_sum = int((len(x_test)-1)/batch_size)+1
             for x_test_batch in batches:
                 progress_percent = iter/iter_sum*100
                 print('\rpredicting: {:.0f}%'.format(progress_percent), end='')
-
                 feed_dict = {
                     input_x_ph: x_test_batch,
                     dropout_keep_prob_ph: 1.0
                 }
-                y_logits_batch = sess.run(op_y_logits, feed_dict)
-                all_y_pred_logits.append(y_logits_batch)
+                y_logits_batch, y_pred_batch = sess.run([op_y_logits, op_y_pred], feed_dict)
+                all_y_pred.append(y_pred_batch)
                 iter += 1
             print()
-            all_y_pred_logits = np.array(all_y_pred_logits)
-            all_y_pred_logits = all_y_pred_logits.reshape((-1, all_y_pred_logits.shape[2]))
-            # print(all_y_pred_logits.shape)
-
-            # transform y_pred
-            all_y_pred_trans = data_helper.transform_data(all_y_pred_logits)
-
-            return all_y_pred_trans
+            all_y_pred = np.array(all_y_pred)
+            all_y_pred = np.reshape(all_y_pred, (-1, self.num_types))
+        return all_y_pred
