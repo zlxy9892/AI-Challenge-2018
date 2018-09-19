@@ -4,7 +4,6 @@ import sys
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow.contrib import learn
 import data_helper
 import matplotlib.pyplot as plt
 import pickle
@@ -35,7 +34,7 @@ pre_trained_model_path = './model/model-4100'
 use_pre_trained_embedding = False
 pre_trained_embedding_file = './data/merge_sgns_bigram_char300.txt'
 use_pkl = True
-type_slice_idx = 1
+type_slice_idx = 4
 
 
 ### loading the train dataset
@@ -106,12 +105,14 @@ else:
 print('loading original labels...')
 label_origin_dev = data_helper.load_origin_label('./data/df_valid.csv')
 
-# show data description
-max_sentence_len = x_train.shape[1]
-vocab_size = len(word2id)
+
 y_train = y_train[:, type_slice_idx-1:type_slice_idx]
 y_dev = y_dev[:, type_slice_idx-1:type_slice_idx]
 label_origin_dev = label_origin_dev[:, type_slice_idx-1:type_slice_idx]
+
+# show data description
+max_sentence_len = x_train.shape[1]
+vocab_size = len(word2id)
 print('learning_rate: {}'.format(lr))
 print('max_sentence_len: {}'.format(max_sentence_len))
 print('vocab_size: {}'.format(vocab_size))

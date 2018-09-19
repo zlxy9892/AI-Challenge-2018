@@ -130,6 +130,7 @@ class TextCNN(object):
             with tf.name_scope('accuracy'):
                 self.correct_preds = tf.equal(self.y_pred, self.input_y)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_preds, 'float32'), name='accuracy')
+                self.confusion_matrix = tf.confusion_matrix(self.input_y[:, 0], predictions=self.y_pred[:, 0], num_classes=4, name='confusion_matrix')
 
         # optimize
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
@@ -188,17 +189,20 @@ class TextCNN(object):
                     self.input_y: y_batch,
                     self.dropout_keep_prob_ph: self.dropout_keep_prob
                 }
-                _, step, summaries, loss, acc, y_logits, y_pred, input_y = sess.run(
-                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.input_y],
+                _, step, summaries, loss, acc, y_logits, y_pred, input_y, confusion_matrix = sess.run(
+                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.input_y, self.confusion_matrix],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
                 epoch = int((step - 1) / num_batches_per_epoch) + 1
                 print('\rtrain_step: {}: => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step, loss, acc), end='')
-                # print()
+                print()
                 # print('y_logits:\n{}'.format(y_logits[0]))
                 # print('y_pred: {}'.format(y_pred[0]))
                 # print('y_true: {}'.format(input_y[0]))
+                print('y_pred: {}'.format(np.reshape(y_pred, (-1))))
+                print('y_true: {}'.format(np.reshape(input_y, (-1))))
+                print(confusion_matrix)
                 if writer:
                     writer.add_summary(summaries, step)
 
