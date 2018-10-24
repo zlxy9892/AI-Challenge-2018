@@ -106,6 +106,7 @@ venv.bak/
 # custom
 .DS_Store
 /data
+/ref
 /code/data
 /code/.idea
 /code/log

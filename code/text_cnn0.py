@@ -17,8 +17,7 @@ class TextCNN(object):
     Structure: embedding layer -> convolutional layer -> max-pooling layer -> softmax layer.
     """
 
-    def __init__(self, model_id=1, num_epochs=100, batch_size=32, lr=1e-3, num_classes=4, num_types=20,
-                 sequence_length=1000, vocab_size=1000,
+    def __init__(self, model_id=1, num_epochs=100, batch_size=32, lr=1e-3, num_classes=4, num_types=20, sequence_length=1000, vocab_size=1000,
                  embedding_size=20, filter_sizes=None, num_filters=100, pooling_topk=3, pooling_chunk_size=10,
                  dropout_keep_prob=0.5, l2_reg_lambda=0.0, weight_matrix=None,
                  pre_trained_embedding_matrix=None, device_name='/cpu:0',
@@ -63,16 +62,11 @@ class TextCNN(object):
                 # embedding layer
                 # define W [vocab_size, embedding_size], W can put the vocabulary map to embedding (high dimension -> low dimension)
                 if self.pre_trained_embedding_matrix is not None:
-                    self.W_embed = tf.Variable(initial_value=self.pre_trained_embedding_matrix, trainable=True,
-                                               name='W_embed')
+                    self.W_embed = tf.Variable(initial_value=self.pre_trained_embedding_matrix, name='W_embed')
                 else:
-                    self.W_embed = tf.Variable(
-                        initial_value=tf.random_uniform(shape=[self.vocab_size, self.embedding_size], minval=-1.0,
-                                                        maxval=1.0), name='W_embed')
-                self.embedded_words = tf.nn.embedding_lookup(params=self.W_embed,
-                                                             ids=self.input_x)  # shape: [None, sequence_length, embedding_size]
-                self.embedded_words_expanded = tf.expand_dims(self.embedded_words,
-                                                              -1)  # add one dimension of channel. the final shape is 4 dimension: [None, sequence_length, embedding_size, 1]
+                    self.W_embed = tf.Variable(initial_value=tf.random_uniform(shape=[self.vocab_size, self.embedding_size], minval=-1.0, maxval=1.0), name='W_embed')
+                self.embedded_words = tf.nn.embedding_lookup(params=self.W_embed, ids=self.input_x)  # shape: [None, sequence_length, embedding_size]
+                self.embedded_words_expanded = tf.expand_dims(self.embedded_words, -1)  # add one dimension of channel. the final shape is 4 dimension: [None, sequence_length, embedding_size, 1]
 
             # create a convolutional + max-pooling layer for each filter size
             pooled_output = []
@@ -89,64 +83,63 @@ class TextCNN(object):
                         strides=[1, 1, 1, 1],
                         padding='VALID',
                         name='conv')
-                    # apply nonlinearity by activation function: ReLU
                     h = tf.nn.relu(tf.nn.bias_add(conv, b), name='relu')
 
                     # max-pooling over outputs
-                    pooled = tf.nn.max_pool(
-                        value=h,
-                        ksize=[1, self.sequence_length - filter_size + 1, 1, 1],
-                        strides=[1, 1, 1, 1],
-                        padding='VALID',
-                        name='pool')
-                    pooled_output.append(pooled)  # the shape of the pooled output: [batch_size, 1, 1, num_filters]
+                    # pooled = tf.nn.max_pool(
+                    #     value=h,
+                    #     ksize=[1, self.sequence_length-filter_size+1, 1, 1],
+                    #     strides=[1, 1, 1, 1],
+                    #     padding='VALID',
+                    #     name='pool')
+                    # pooled_output.append(pooled)  # the shape of the pooled output: [batch_size, 1, 1, num_filters]
 
                     # avg-pooling over outputs
-            #                     pooled = tf.nn.avg_pool(
-            #                         value=h,
-            #                         ksize=[1, self.sequence_length-filter_size+1, 1, 1],
-            #                         strides=[1, 1, 1, 1],
-            #                         padding='VALID',
-            #                         name='pool'
-            #                     )
-            #                     pooled_output.append(pooled)
+                    pooled = tf.nn.avg_pool(
+                        value=h,
+                        ksize=[1, self.sequence_length-filter_size+1, 1, 1],
+                        strides=[1, 1, 1, 1],
+                        padding='VALID',
+                        name='pool'
+                    )
+                    pooled_output.append(pooled)
 
-            # dynamic max pooling layer (k-max pooling)
-            #                     h = tf.transpose(h, perm=[0, 3, 2, 1])
-            #                     pooled = tf.nn.top_k(h, self.pooling_topk, sorted=False).values  # [batch_size, num_filters, 1, k]
-            #                     pooled = tf.transpose(pooled, perm=[0, 3, 2, 1], name='pool')
-            #                     num_filters_total = int(pooled.get_shape()[-1]) * int(pooled.get_shape()[-3])
-            #                     pooled = tf.reshape(pooled, [-1, num_filters_total])
-            #                     pooled_output.append(pooled)
+                    # dynamic max pooling layer (k-max pooling)
+                    # h = tf.transpose(h, perm=[0, 3, 2, 1])
+                    # pooled = tf.nn.top_k(h, self.pooling_topk, sorted=False).values  # [batch_size, num_filters, 1, k]
+                    # pooled = tf.transpose(pooled, perm=[0, 3, 2, 1], name='pool')
+                    # num_filters_total = int(pooled.get_shape()[-1]) * int(pooled.get_shape()[-3])
+                    # pooled = tf.reshape(pooled, [-1, num_filters_total])
+                    # pooled_output.append(pooled)
 
-            # dynamic max pooling layer (chunck-max pooling)
-            #                     m = int(h.get_shape()[-3])
-            #                     m_d_p = int(m / self.pooling_chunk_size)
-            #                     m_bar = int(m_d_p * self.pooling_chunk_size)
-            #                     h = tf.slice(h, [0, 0, 0, 0], [-1, m_bar, -1, -1])
-            #                     m = int(h.get_shape()[-3])
-            #                     index_list = list(range(0, m, m_d_p))
-            #                     if m not in index_list:
-            #                         index_list.append(m)
-            #                     for j in range(len(index_list) - 1):
-            #                         start = index_list[j]
-            #                         slice_val = tf.slice(h, [0, start, 0, 0], [-1, m_d_p, -1, -1], name="slice_{}".format(j))
-            #                         pooled = tf.nn.max_pool(
-            #                             slice_val,
-            #                             ksize=[1, m_d_p, 1, 1],
-            #                             strides=[1, 1, 1, 1],
-            #                             padding='VALID',
-            #                             name='pool_{}'.format(j))
-            #                         temp_pooled_outputs.append(pooled)
+                    # dynamic max pooling layer (chunck-max pooling)
+            #         m = int(h.get_shape()[-3])
+            #         m_d_p = int(m / self.pooling_chunk_size)
+            #         m_bar = int(m_d_p * self.pooling_chunk_size)
+            #         h = tf.slice(h, [0, 0, 0, 0], [-1, m_bar, -1, -1])
+            #         m = int(h.get_shape()[-3])
+            #         index_list = list(range(0, m, m_d_p))
+            #         if m not in index_list:
+            #             index_list.append(m)
+            #         for j in range(len(index_list) - 1):
+            #             start = index_list[j]
+            #             slice_val = tf.slice(h, [0, start, 0, 0], [-1, m_d_p, -1, -1], name="slice_{}".format(j))
+            #             pooled = tf.nn.max_pool(
+            #                 slice_val,
+            #                 ksize=[1, m_d_p, 1, 1],
+            #                 strides=[1, 1, 1, 1],
+            #                 padding='VALID',
+            #                 name='pool_{}'.format(j))
+            #             temp_pooled_outputs.append(pooled)
+            #
+            #     # Combine all the pooled features
+            #     content_pool = tf.concat(temp_pooled_outputs, 3)
+            #     num_filters_total = int(content_pool.get_shape()[-1]) * int(content_pool.get_shape()[-3])
+            #     content_pool_flat = tf.reshape(content_pool, [-1, num_filters_total])
+            #     pooled_output.append(content_pool_flat)
 
-            #                 # Combine all the pooled features
-            #                 content_pool = tf.concat(temp_pooled_outputs, 3)
-            #                 num_filters_total = int(content_pool.get_shape()[-1]) * int(content_pool.get_shape()[-3])
-            #                 content_pool_flat = tf.reshape(content_pool, [-1, num_filters_total])
-            #                 pooled_output.append(content_pool_flat)
-
-            #             self.h_pool_flat = tf.concat(pooled_output, -1)
-            #             num_filter_total = int(self.h_pool_flat.get_shape()[-1])
+            # self.h_pool_flat = tf.concat(pooled_output, -1)
+            # num_filter_total = int(self.h_pool_flat.get_shape()[-1])
 
             # combine all the pooled features
             num_filter_total = self.num_filters * len(self.filter_sizes)
@@ -156,23 +149,19 @@ class TextCNN(object):
             # add bath normalization
             self.h_pool_flat_norm = tf.layers.batch_normalization(self.h_pool_flat)
 
-            # add dropout
-            with tf.name_scope('dropout'):
-                self.h_drop = tf.nn.dropout(self.h_pool_flat_norm, keep_prob=self.dropout_keep_prob_ph,
-                                            name='dropout_keep_prob')
-
             # add 1 FC layer
             with tf.name_scope('fc_layer'):
-                h_size_fc = 128
-                W_fc_1 = tf.Variable(tf.truncated_normal(shape=[num_filter_total, h_size_fc], mean=0.0, stddev=0.1),
-                                     name='W_fc_1')
-                b_fc_1 = tf.Variable(tf.truncated_normal(shape=[h_size_fc], mean=0.0, stddev=0.1), name='b_fc_1')
-                self.l2_loss += tf.nn.l2_loss(W_fc_1)
-                self.l2_loss += tf.nn.l2_loss(b_fc_1)
-                self.h_fc = tf.nn.xw_plus_b(x=self.h_drop, weights=W_fc_1, biases=b_fc_1, name='h_fc_1')
+                h_size_fc = 1024
+                W_fc_1 = tf.Variable(tf.truncated_normal(shape=[num_filter_total, h_size_fc], mean=0.0, stddev=0.1), name='W_fc_1')
+                b_fc_1 = tf.Variable(tf.constant(value=0.1, shape=[h_size_fc]), name='b_fc_1')
+                self.h_fc = tf.nn.xw_plus_b(x=self.h_pool_flat_norm, weights=W_fc_1, biases=b_fc_1, name='h_fc_1')
 
             # add batch normalization
             self.h_fc_norm = tf.layers.batch_normalization(self.h_fc)
+
+            # add dropout
+            with tf.name_scope('dropout'):
+                self.h_drop = tf.nn.dropout(self.h_fc_norm, keep_prob=self.dropout_keep_prob_ph, name='dropout_keep_prob')
 
             # final output
             with tf.name_scope('output'):
@@ -180,13 +169,11 @@ class TextCNN(object):
                 y_logits = []
                 y_pred = []
                 for i in range(self.num_types):
-                    W_fc = tf.Variable(tf.truncated_normal(shape=[h_size_fc, self.num_classes], mean=0.0, stddev=0.1),
-                                       name='W_fc_{}'.format(i))
-                    b_fc = tf.Variable(tf.truncated_normal(shape=[self.num_classes], mean=0.0, stddev=0.1),
-                                       name='b_fc_{}'.format(i))
-                    #                     self.l2_loss += tf.nn.l2_loss(W_fc)
-                    #                     self.l2_loss += tf.nn.l2_loss(b_fc)
-                    scores = tf.nn.xw_plus_b(x=self.h_fc_norm, weights=W_fc, biases=b_fc, name='scores_{}'.format(i))
+                    W_fc = tf.Variable(tf.truncated_normal(shape=[h_size_fc, self.num_classes], mean=0.0, stddev=0.1), name='W_fc_{}'.format(i))
+                    b_fc = tf.Variable(tf.constant(value=0.1, shape=[self.num_classes]), name='b_fc_{}'.format(i))
+                    # self.l2_loss += tf.nn.l2_loss(W_fc)
+                    # self.l2_loss += tf.nn.l2_loss(b_fc)
+                    scores = tf.nn.xw_plus_b(x=self.h_drop, weights=W_fc, biases=b_fc, name='scores_{}'.format(i))
                     self.all_scores.append(scores)
                     y_logits_sub = tf.nn.softmax(scores, name='y_logits_sub_{}'.format(i))
                     y_pred_sub = tf.argmax(input=scores, axis=1, name='y_pred_sub_{}'.format(i))
@@ -202,12 +189,9 @@ class TextCNN(object):
                 losses = []
                 for i in range(self.num_types):
                     if self.weight_matrix is None:
-                        loss_sub = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_y[:, i],
-                                                                                  logits=self.all_scores[i])
+                        loss_sub = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_y[:, i], logits=self.all_scores[i])
                     else:
-                        loss_sub = tf.losses.sparse_softmax_cross_entropy(labels=self.input_y[:, i],
-                                                                          logits=self.all_scores[i],
-                                                                          weights=self.weights[:, i])
+                        loss_sub = tf.losses.sparse_softmax_cross_entropy(labels=self.input_y[:, i], logits=self.all_scores[i], weights=self.weights[:, i])
                     loss_sub = tf.reduce_mean(loss_sub)
                     losses.append(loss_sub)
                 self.loss = tf.reduce_mean(losses) + self.l2_reg_lambda * self.l2_loss
@@ -216,10 +200,10 @@ class TextCNN(object):
             with tf.name_scope('accuracy'):
                 self.correct_preds = tf.equal(self.y_pred, self.input_y)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_preds, 'float32'), name='accuracy')
-        #                 self.confusion_matrix_list = []
-        #                 for i in range(self.num_types):
-        #                     confusion_matrix = tf.confusion_matrix(self.input_y[:, i], predictions=self.y_pred[:, i], num_classes=4, name='confusion_matrix_list')
-        #                     self.confusion_matrix_list.append(confusion_matrix)
+                self.confusion_matrix_list = []
+                # for i in range(self.num_types):
+                #     confusion_matrix = tf.confusion_matrix(self.input_y[:, i], predictions=self.y_pred[:, i], num_classes=4, name='confusion_matrix_list')
+                #     self.confusion_matrix_list.append(confusion_matrix)
 
         # optimize
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
@@ -227,19 +211,16 @@ class TextCNN(object):
         grads_and_vars = optimizer.compute_gradients(self.loss)
         self.train_op = optimizer.apply_gradients(grads_and_vars, global_step=self.global_step, name='train_op')
 
-    def train_model(self, x_train, y_train, x_dev, y_dev, label_origin_dev, use_pre_trained=False,
-                    pre_trained_model_path=None, per_process_gpu_memory_fraction=None):
+    def train_model(self, x_train, y_train, x_dev, y_dev, label_origin_dev, use_pre_trained=False, pre_trained_model_path=None, per_process_gpu_memory_fraction=None):
         if per_process_gpu_memory_fraction is not None:
             gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=per_process_gpu_memory_fraction)
-            session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False,
-                                          gpu_options=gpu_options)
+            session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False, gpu_options=gpu_options)
         else:
             session_conf = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
         with tf.Session(config=session_conf) as sess:
             # output directory for models and summaries
             timestamp = str(int(time.time()))
-            # out_dir = os.path.abspath(os.path.join(os.curdir, 'log', str(self.model_id), timestamp))
-            out_dir = os.path.abspath(os.path.join(os.curdir, 'log', str(self.model_id)))
+            out_dir = os.path.abspath(os.path.join(os.curdir, 'log', str(self.model_id), timestamp))
             print('Writing log to {}\n'.format(out_dir))
 
             # summary all the trainable variables
@@ -290,14 +271,12 @@ class TextCNN(object):
                     # self.weights: sample_weights
                 }
                 _, step, summaries, loss, acc, y_logits, y_pred, input_y = sess.run(
-                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits,
-                     self.y_pred, self.input_y],
+                    [self.train_op, self.global_step, train_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.input_y],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
                 epoch = int((step - 1) / num_batches_per_epoch) + 1
-                print('\rtrain_step: {}: => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step,
-                                                                                                  loss, acc), end='')
+                print('\rtrain_step: {} => epoch {} | step {} | loss {:.5f} | acc {:.5f}'.format(timestr, epoch, step, loss, acc), end='')
                 # print()
                 # print('y_logits:\n{}'.format(y_logits[0]))
                 # print('y_pred: {}'.format(y_pred[0]))
@@ -320,8 +299,7 @@ class TextCNN(object):
                     # self.weights: sample_weights
                 }
                 step, summaries, loss, accuracy, y_logits, y_pred, confusion_matrix_list = sess.run(
-                    [self.global_step, dev_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred,
-                     self.confusion_matrix_list],
+                    [self.global_step, dev_summary_op, self.loss, self.accuracy, self.y_logits, self.y_pred, self.confusion_matrix_list],
                     feed_dict)
                 timestr = datetime.datetime.now().isoformat()
                 num_batches_per_epoch = int((len(x_train) - 1) / self.batch_size) + 1
@@ -335,8 +313,7 @@ class TextCNN(object):
                     score_f1_list.append(score_f1_one)
                 score_f1 = np.mean(score_f1_list)
 
-                print('dev_step:   {}: => epoch {} | step {} | loss {:.5f} | acc {:.5f} | F1_score: {:.5f}'.format(
-                    timestr, epoch, step, loss, accuracy, score_f1))
+                print('dev_step:   {} => epoch {} | step {} | loss {:.5f} | acc {:.5f} | F1_score: {:.5f}'.format(timestr, epoch, step, loss, accuracy, score_f1))
                 print('confusion_matrix:\n{}'.format(confusion_matrix_list))
 
                 if writer:
@@ -399,7 +376,7 @@ class TextCNN(object):
                     score_f1 = dev_step(x_dev, y_dev, label_origin_dev, writer=dev_summary_writer)
                     with open(os.path.join(checkpoint_dir_best_model, 'log_f1_score.txt'), 'a', encoding='utf-8') as f:
                         f.write(str(current_step) + ',' + str('{:.5f}'.format(score_f1)) + '\n')
-                    if score_f1_max < score_f1 and current_step * self.batch_size >= len(x_train):
+                    if score_f1_max < score_f1:
                         score_f1_max = score_f1
                         path_best_model = os.path.join(checkpoint_dir_best_model, 'model-best-{}'.format(self.model_id))
                         # path_best_model = './model/model-best-{}'.format(current_step)
@@ -453,9 +430,9 @@ class TextCNN(object):
             all_y_pred = []
             batches = data_helper.batch_iter(list(x_test), batch_size, 1, shuffle=False)
             iter = 1
-            iter_sum = int((len(x_test) - 1) / batch_size) + 1
+            iter_sum = int((len(x_test)-1)/batch_size)+1
             for x_test_batch in batches:
-                progress_percent = iter / iter_sum * 100
+                progress_percent = iter/iter_sum*100
                 print('\rpredicting: {:.0f}%'.format(progress_percent), end='')
                 feed_dict = {
                     input_x_ph: x_test_batch,
